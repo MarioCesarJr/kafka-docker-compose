@@ -27,15 +27,67 @@ services:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
       ZOOKEEPER_SASL_ENABLED: 'false'
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092, SASL_PLAINTEXT://localhost:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092, SASL_PLAINTEXT://localhost:9093
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT, SASL_PLAINTEXT:SASL_PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_SECURITY_INTER_BROKER_PROTOCOL: SASL_PLAINTEXT
       KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
       KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
       KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/kafka_jaas.conf"
+      KAFKA_MESSAGE_MAX_BYTES: 100000000
     volumes:
       - ./kafka_server_jaas.conf:/etc/kafka/kafka_jaas.conf
+
+  akhq:
+    image: tchiotludo/akhq:0.19.0
+    container_name: akhq
+    restart: always
+    ports:
+      - 8080:8080
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/akhq
+      - SPRING_DATASOURCE_USERNAME=akhq
+      - SPRING_DATASOURCE_PASSWORD=akhq_password
+      - SERVER_SERVLET_CONTEXT_PATH=/akhq
+      - KAFKA_OPTS=-Djava.security.auth.login.config=/etc/kafka/kafka_jaas.conf
+      - AKHQ_OPTS=-Dakhq.kafka.security.protocol=SASL_PLAINTEXT \
+                  -Dakhq.kafka.sasl.mechanism=PLAIN \
+                  -Dakhq.kafka.sasl.jaas.config='org.apache.kafka.common.security.plain.PlainLoginModule required username="kafka" password="pass123";'
+    depends_on:
+      - db
+    command: ["java", "--add-opens", "java.base/java.lang=ALL-UNNAMED", "-jar", "akhq.jar"]
+    networks: 
+      - broker-kafka
+    volumes:
+      - ./akhq_application.yml:/app/application.yml
+
+  db:
+    image: postgres:12-alpine
+    container_name: postgres-akhq
+    restart: always
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=akhq
+      - POSTGRES_USER=akhq
+      - POSTGRES_PASSWORD=akhq_password
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    container_name: kafdrop
+    restart: always
+    networks: 
+      - broker-kafka
+    depends_on:
+      - kafka
+    ports:
+      - 19000:9000
+    environment:
+      KAFKA_BROKERCONNECT: kafka:9092
+      KAFKA_USERNAME: kafka
+      KAFKA_PASSWORD: pass123
+      KAFKA_MECHANISM: PLAIN
+      
 
 networks: 
   broker-kafka:
